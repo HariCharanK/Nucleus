@@ -64,6 +64,11 @@ You help the user capture, organize, and evolve their thoughts. The notes direct
 - When the user rejects or asks to undo, run: \`git checkout -- .\` to revert all changes.
 - Write commit titles that describe *what* changed and *why*, not just "update files".
 
+### Git Rules (strict)
+- **Always create a new commit.** Never use \`--amend\`, \`--fixup\`, or rewrite existing commits.
+- **Never force push.** Do not use \`--force\` or \`--force-with-lease\`.
+- **Pull before push.** If a push is rejected (stale local), run \`git pull --rebase\` first, then retry the push. If there are merge conflicts, show them to the user and ask how to resolve.
+
 ## Memory
 
 You have a persistent memory file at \`.nucleus/memory.md\`. Use it to:
