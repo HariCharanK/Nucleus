@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import { stream } from 'hono/streaming';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { streamText, type CoreMessage } from 'ai';
 import { createBashTool, createTextEditorTool } from './tools.js';
@@ -14,16 +15,13 @@ const CACHE_CONTROL = {
 /**
  * Handle POST /api/chat — the core agentic loop.
  *
- * Receives messages in the Vercel AI SDK `useChat` format,
- * streams back a response with tool calls and text.
+ * Uses Hono's stream helper to pipe the AI SDK data stream,
+ * ensuring proper streaming through @hono/node-server.
  */
 export async function handleChat(c: Context): Promise<Response> {
   const notesDir = process.env.NOTES_DIR;
   if (!notesDir) {
-    return c.json(
-      { error: 'NOTES_DIR environment variable is not set' },
-      500,
-    );
+    return c.json({ error: 'NOTES_DIR environment variable is not set' }, 500);
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -34,9 +32,14 @@ export async function handleChat(c: Context): Promise<Response> {
     );
   }
 
-  const body = await c.req.json();
-  const { messages } = body;
+  let body: { messages?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
 
+  const { messages } = body;
   if (!messages || !Array.isArray(messages)) {
     return c.json({ error: 'messages array is required' }, 400);
   }
@@ -45,10 +48,7 @@ export async function handleChat(c: Context): Promise<Response> {
   const anthropic = createAnthropic({ apiKey });
   const systemPrompt = await buildSystemPrompt(notesDir);
 
-  // Prepend a system message with cache control to the messages array.
-  // The system prompt contains the directory tree and agent memory —
-  // mostly stable across turns, so caching saves significant input
-  // token costs on multi-turn conversations.
+  // System message with prompt caching
   const systemMessage: CoreMessage = {
     role: 'system',
     content: systemPrompt,
@@ -63,7 +63,21 @@ export async function handleChat(c: Context): Promise<Response> {
       text_editor: createTextEditorTool(notesDir),
     },
     maxSteps: 20,
+    onError: ({ error }) => {
+      console.error('[Nucleus] Stream error:', error);
+    },
   });
 
-  return result.toDataStreamResponse();
+  // Return the data stream response with detailed error messages.
+  // By default, toDataStreamResponse masks errors as "An error occurred."
+  // We override getErrorMessage to surface the actual error to the client.
+  return result.toDataStreamResponse({
+    getErrorMessage: (error) => {
+      if (error instanceof Error) {
+        // Surface API errors (auth, model not found, rate limit, etc.)
+        return error.message;
+      }
+      return 'An unexpected error occurred';
+    },
+  });
 }

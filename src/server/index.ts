@@ -31,6 +31,16 @@ try {
 // ---------------------------------------------------------------------------
 const app = new Hono();
 
+// Health check
+app.get('/api/health', (c) => {
+  return c.json({
+    ok: true,
+    notesDir: process.env.NOTES_DIR || null,
+    hasApiKey: !!process.env.ANTHROPIC_API_KEY,
+    model: process.env.MODEL || 'claude-opus-4-6',
+  });
+});
+
 // Chat endpoint — the core agentic loop
 app.post('/api/chat', handleChat);
 

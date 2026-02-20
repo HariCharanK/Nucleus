@@ -1,12 +1,18 @@
 import { useChat } from '@ai-sdk/react';
-import { useEffect, useRef, useState, KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, useCallback, KeyboardEvent } from 'react';
 import Message from './Message';
 import DiffPanel from './DiffPanel';
 
 export default function Chat() {
+  const [error, setError] = useState<string | null>(null);
+
   const { messages, input, setInput, handleSubmit, status } = useChat({
     api: '/api/chat',
     maxSteps: 20,
+    onError: (err) => {
+      console.error('[Nucleus] Chat error:', err);
+      setError(err.message || 'An unexpected error occurred');
+    },
   });
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -19,24 +25,31 @@ export default function Chat() {
   const prevStatusRef = useRef(status);
 
   useEffect(() => {
-    // When status transitions from streaming/submitted → ready, the agent is done
     if (
       (prevStatusRef.current === 'streaming' ||
         prevStatusRef.current === 'submitted') &&
       status === 'ready'
     ) {
-      // Small delay to let filesystem operations settle
       setTimeout(() => setDiffRefreshKey((k) => k + 1), 500);
     }
     prevStatusRef.current = status;
   }, [status]);
 
-  // Auto-scroll to bottom when messages change
+  // Clear error when user sends a new message
+  const onSubmit = useCallback(
+    (e: React.FormEvent) => {
+      setError(null);
+      handleSubmit(e);
+    },
+    [handleSubmit],
+  );
+
+  // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, error]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -51,7 +64,7 @@ export default function Chat() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (input.trim() && !isLoading) {
-        handleSubmit(e as unknown as React.FormEvent);
+        onSubmit(e as unknown as React.FormEvent);
       }
     }
   };
@@ -63,7 +76,7 @@ export default function Chat() {
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
       >
-        {messages.length === 0 && (
+        {messages.length === 0 && !error && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center space-y-3">
               <div className="text-4xl">🧬</div>
@@ -92,6 +105,20 @@ export default function Chat() {
               </div>
             </div>
           )}
+
+        {/* Error display */}
+        {error && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] bg-red-950/40 border border-red-800/50 rounded-lg px-4 py-3">
+              <div className="text-[11px] text-red-400 font-medium mb-1 tracking-wide uppercase">
+                Error
+              </div>
+              <div className="text-sm text-red-300 whitespace-pre-wrap">
+                {error}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Diff panel — shows uncommitted changes after agent edits */}
@@ -100,7 +127,7 @@ export default function Chat() {
       {/* Input area */}
       <div className="border-t border-neutral-800 p-4">
         <form
-          onSubmit={handleSubmit}
+          onSubmit={onSubmit}
           className="flex items-end gap-2 max-w-4xl mx-auto"
         >
           <textarea
