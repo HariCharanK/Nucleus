@@ -17,7 +17,14 @@ try {
     const eqIndex = trimmed.indexOf('=');
     if (eqIndex === -1) continue;
     const key = trimmed.slice(0, eqIndex).trim();
-    const value = trimmed.slice(eqIndex + 1).trim();
+    let value = trimmed.slice(eqIndex + 1).trim();
+    // Strip surrounding quotes (single or double)
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
     if (!(key in process.env)) {
       process.env[key] = value;
     }
