@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
 import { Hono } from 'hono';
@@ -80,6 +80,21 @@ app.post('/api/new-chat', (c) => {
       mkdirSync(archiveDir, { recursive: true });
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       writeFileSync(resolve(archiveDir, `${timestamp}.md`), prev, 'utf-8');
+
+      // Ensure .nucleus/conversations/ is gitignored in the target repo
+      const gitignorePath = resolve(notesDir, '.gitignore');
+      const ignoreEntry = '.nucleus/conversations/';
+      try {
+        const existing = existsSync(gitignorePath)
+          ? readFileSync(gitignorePath, 'utf-8')
+          : '';
+        if (!existing.split('\n').some((l) => l.trim() === ignoreEntry)) {
+          const separator = existing && !existing.endsWith('\n') ? '\n' : '';
+          writeFileSync(gitignorePath, existing + separator + ignoreEntry + '\n', 'utf-8');
+        }
+      } catch {
+        // Non-critical — don't block the new-chat flow
+      }
     }
 
     // Clear current conversation
