@@ -1,10 +1,15 @@
 import type { Context } from 'hono';
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { streamText } from 'ai';
+import { streamText, type CoreMessage } from 'ai';
 import { createBashTool, createTextEditorTool } from './tools.js';
 import { buildSystemPrompt } from './prompts.js';
 
 const DEFAULT_MODEL = 'claude-opus-4-6';
+
+/** Anthropic cache control — marks content as cacheable (ephemeral) */
+const CACHE_CONTROL = {
+  anthropic: { cacheControl: { type: 'ephemeral' as const } },
+};
 
 /**
  * Handle POST /api/chat — the core agentic loop.
@@ -38,12 +43,21 @@ export async function handleChat(c: Context): Promise<Response> {
 
   const modelId = process.env.MODEL || DEFAULT_MODEL;
   const anthropic = createAnthropic({ apiKey });
-  const system = await buildSystemPrompt(notesDir);
+  const systemPrompt = await buildSystemPrompt(notesDir);
+
+  // Prepend a system message with cache control to the messages array.
+  // The system prompt contains the directory tree and agent memory —
+  // mostly stable across turns, so caching saves significant input
+  // token costs on multi-turn conversations.
+  const systemMessage: CoreMessage = {
+    role: 'system',
+    content: systemPrompt,
+    providerOptions: CACHE_CONTROL,
+  };
 
   const result = streamText({
     model: anthropic(modelId),
-    system,
-    messages,
+    messages: [systemMessage, ...messages],
     tools: {
       bash: createBashTool(notesDir),
       text_editor: createTextEditorTool(notesDir),
