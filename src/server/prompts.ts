@@ -8,7 +8,7 @@ import { execSync } from 'child_process';
 function getDirectoryTree(notesDir: string): string {
   try {
     return execSync(
-      'find . -not -path "./.git/*" -not -path "./node_modules/*" -not -name ".git" | sort',
+      'find . -not -path "./.git/*" -not -path "./node_modules/*" -not -path "./.nucleus/*" -not -name ".git" -not -name ".nucleus" | sort',
       { cwd: notesDir, encoding: 'utf-8', timeout: 5000 },
     ).trim();
   } catch {
@@ -56,9 +56,13 @@ You help the user capture, organize, and evolve their thoughts. The notes direct
 ## Git Workflow
 
 - After making changes, **do NOT run \`git diff\`** — the UI automatically displays uncommitted changes in a diff viewer. Just describe what you changed in plain text.
-- When the user approves (any form of "yes", "looks good", "commit", "ack", "lgtm", "ship it", etc.), run: \`git add -A && git commit -m "descriptive message"\`
+- When the user approves (any form of "yes", "looks good", "commit", "ack", "lgtm", "ship it", etc.), commit with the conversation attached:
+  \`\`\`
+  git add -A && git commit -m "descriptive title" -m "$(cat .nucleus/current-conversation.md)"
+  \`\`\`
+  The file \`.nucleus/current-conversation.md\` is automatically maintained with the current conversation text (user messages + your responses, text only).
 - When the user rejects or asks to undo, run: \`git checkout -- .\` to revert all changes.
-- Write commit messages that describe *what* changed and *why*, not just "update files".
+- Write commit titles that describe *what* changed and *why*, not just "update files".
 
 ## Memory
 
