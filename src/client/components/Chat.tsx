@@ -20,21 +20,6 @@ export default function Chat() {
 
   const isLoading = status === 'streaming' || status === 'submitted';
 
-  // Track a refresh key that increments when the agent finishes a turn
-  const [diffRefreshKey, setDiffRefreshKey] = useState(0);
-  const prevStatusRef = useRef(status);
-
-  useEffect(() => {
-    if (
-      (prevStatusRef.current === 'streaming' ||
-        prevStatusRef.current === 'submitted') &&
-      status === 'ready'
-    ) {
-      setTimeout(() => setDiffRefreshKey((k) => k + 1), 500);
-    }
-    prevStatusRef.current = status;
-  }, [status]);
-
   // Clear error when user sends a new message
   const onSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -122,7 +107,7 @@ export default function Chat() {
       </div>
 
       {/* Diff panel — shows uncommitted changes after agent edits */}
-      <DiffPanel refreshKey={diffRefreshKey} />
+      <DiffPanel isStreaming={isLoading} />
 
       {/* Input area */}
       <div className="border-t border-neutral-800 p-4">

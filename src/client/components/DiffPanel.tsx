@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import DiffView from './DiffView';
 
 interface DiffData {
@@ -8,39 +8,44 @@ interface DiffData {
 }
 
 /**
- * DiffPanel — polls /api/diff and renders uncommitted changes.
- * Sits below or beside the chat. Only visible when there are changes.
+ * DiffPanel — shows uncommitted git changes from the notes dir.
+ * Polls every 2s while the agent is streaming, fetches once when idle.
  */
-export default function DiffPanel({ refreshKey }: { refreshKey: number }) {
+export default function DiffPanel({ isStreaming }: { isStreaming: boolean }) {
   const [data, setData] = useState<DiffData | null>(null);
   const [expanded, setExpanded] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const prevDiffRef = useRef<string>('');
 
   const fetchDiff = useCallback(async () => {
-    setLoading(true);
     try {
       const res = await fetch('/api/diff');
       if (res.ok) {
         const json = await res.json();
-        setData(json);
-        // Auto-expand when there are changes
-        if (json.diff?.trim()) {
-          setExpanded(true);
+        // Only update state if diff actually changed (avoid unnecessary re-renders)
+        if (json.diff !== prevDiffRef.current) {
+          prevDiffRef.current = json.diff ?? '';
+          setData(json);
+          if (json.diff?.trim()) {
+            setExpanded(true);
+          }
         }
       }
     } catch {
-      // Silently fail — server might not be running
-    } finally {
-      setLoading(false);
+      // Silently fail
     }
   }, []);
 
-  // Fetch on mount and whenever refreshKey changes (after each assistant turn)
   useEffect(() => {
+    // Always fetch immediately
     fetchDiff();
-  }, [refreshKey, fetchDiff]);
 
-  // Nothing to show
+    if (isStreaming) {
+      // Poll every 2s while the agent is working
+      const interval = setInterval(fetchDiff, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [isStreaming, fetchDiff]);
+
   if (!data?.diff?.trim()) {
     return null;
   }
@@ -49,7 +54,6 @@ export default function DiffPanel({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div className="border-t border-neutral-800 bg-neutral-950">
-      {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-4 py-2 text-xs hover:bg-neutral-900 transition-colors"
@@ -61,12 +65,11 @@ export default function DiffPanel({ refreshKey }: { refreshKey: number }) {
         <span className="text-neutral-600">
           {fileCount} file{fileCount !== 1 ? 's' : ''}
         </span>
-        {loading && (
+        {isStreaming && (
           <span className="ml-auto inline-block w-3 h-3 border border-neutral-600 border-t-emerald-400 rounded-full animate-spin" />
         )}
       </button>
 
-      {/* Diff content */}
       {expanded && (
         <div className="px-4 pb-3 max-h-[40vh] overflow-y-auto">
           <DiffView diff={data.diff} />
