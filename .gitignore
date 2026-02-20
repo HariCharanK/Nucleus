@@ -1,4 +1,5 @@
-node_modules/\ndist/\n.env\n*.tsbuildinfo
 node_modules/
 dist/
 .env
+*.tsbuildinfo
+.nucleus/conversations/
