@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { execSync } from 'child_process';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -17,7 +18,6 @@ try {
     if (eqIndex === -1) continue;
     const key = trimmed.slice(0, eqIndex).trim();
     const value = trimmed.slice(eqIndex + 1).trim();
-    // Don't overwrite existing env vars (CLI flags take precedence)
     if (!(key in process.env)) {
       process.env[key] = value;
     }
@@ -31,8 +31,56 @@ try {
 // ---------------------------------------------------------------------------
 const app = new Hono();
 
-// API route — the only real endpoint
+// Chat endpoint — the core agentic loop
 app.post('/api/chat', handleChat);
+
+// Diff endpoint — returns uncommitted git changes from the notes dir
+app.get('/api/diff', (c) => {
+  const notesDir = process.env.NOTES_DIR;
+  if (!notesDir) return c.json({ diff: '', stat: '' });
+
+  try {
+    const diff = execSync('git diff', {
+      cwd: notesDir,
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    const stat = execSync('git diff --stat', {
+      cwd: notesDir,
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    // Also include untracked files
+    const untracked = execSync('git ls-files --others --exclude-standard', {
+      cwd: notesDir,
+      encoding: 'utf-8',
+      timeout: 5000,
+    }).trim();
+
+    // For untracked files, generate a diff-like output
+    let fullDiff = diff;
+    if (untracked) {
+      for (const file of untracked.split('\n')) {
+        if (!file) continue;
+        try {
+          const content = readFileSync(resolve(notesDir, file), 'utf-8');
+          fullDiff += `\ndiff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${content.split('\n').length} @@\n`;
+          fullDiff += content
+            .split('\n')
+            .map((l) => `+${l}`)
+            .join('\n');
+          fullDiff += '\n';
+        } catch {
+          // Skip files we can't read
+        }
+      }
+    }
+
+    return c.json({ diff: fullDiff, stat, untracked });
+  } catch {
+    return c.json({ diff: '', stat: '' });
+  }
+});
 
 // In production, serve the Vite-built static files
 if (process.env.NODE_ENV === 'production') {

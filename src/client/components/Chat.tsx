@@ -1,6 +1,7 @@
 import { useChat } from '@ai-sdk/react';
-import { useEffect, useRef, KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, KeyboardEvent } from 'react';
 import Message from './Message';
+import DiffPanel from './DiffPanel';
 
 export default function Chat() {
   const { messages, input, setInput, handleSubmit, status } = useChat({
@@ -12,6 +13,23 @@ export default function Chat() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isLoading = status === 'streaming' || status === 'submitted';
+
+  // Track a refresh key that increments when the agent finishes a turn
+  const [diffRefreshKey, setDiffRefreshKey] = useState(0);
+  const prevStatusRef = useRef(status);
+
+  useEffect(() => {
+    // When status transitions from streaming/submitted → ready, the agent is done
+    if (
+      (prevStatusRef.current === 'streaming' ||
+        prevStatusRef.current === 'submitted') &&
+      status === 'ready'
+    ) {
+      // Small delay to let filesystem operations settle
+      setTimeout(() => setDiffRefreshKey((k) => k + 1), 500);
+    }
+    prevStatusRef.current = status;
+  }, [status]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -75,6 +93,9 @@ export default function Chat() {
             </div>
           )}
       </div>
+
+      {/* Diff panel — shows uncommitted changes after agent edits */}
+      <DiffPanel refreshKey={diffRefreshKey} />
 
       {/* Input area */}
       <div className="border-t border-neutral-800 p-4">
