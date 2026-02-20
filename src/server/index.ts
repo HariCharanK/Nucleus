@@ -80,21 +80,6 @@ app.post('/api/new-chat', (c) => {
       mkdirSync(archiveDir, { recursive: true });
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       writeFileSync(resolve(archiveDir, `${timestamp}.md`), prev, 'utf-8');
-
-      // Ensure .nucleus/conversations/ is gitignored in the target repo
-      const gitignorePath = resolve(notesDir, '.gitignore');
-      const ignoreEntry = '.nucleus/conversations/';
-      try {
-        const existing = existsSync(gitignorePath)
-          ? readFileSync(gitignorePath, 'utf-8')
-          : '';
-        if (!existing.split('\n').some((l) => l.trim() === ignoreEntry)) {
-          const separator = existing && !existing.endsWith('\n') ? '\n' : '';
-          writeFileSync(gitignorePath, existing + separator + ignoreEntry + '\n', 'utf-8');
-        }
-      } catch {
-        // Non-critical — don't block the new-chat flow
-      }
     }
 
     // Clear current conversation
@@ -176,7 +161,24 @@ const port = parseInt(process.env.PORT || '3001', 10);
 
 console.log(`🧠 Nucleus server starting on port ${port}`);
 if (process.env.NOTES_DIR) {
-  console.log(`📁 Notes directory: ${process.env.NOTES_DIR}`);
+  const notesDir = process.env.NOTES_DIR;
+  console.log(`📁 Notes directory: ${notesDir}`);
+
+  // Ensure .nucleus/conversations/ is gitignored in the target repo
+  const gitignorePath = resolve(notesDir, '.gitignore');
+  const ignoreEntry = '.nucleus/conversations/';
+  try {
+    const existing = existsSync(gitignorePath)
+      ? readFileSync(gitignorePath, 'utf-8')
+      : '';
+    if (!existing.split('\n').some((l) => l.trim() === ignoreEntry)) {
+      const separator = existing && !existing.endsWith('\n') ? '\n' : '';
+      writeFileSync(gitignorePath, existing + separator + ignoreEntry + '\n', 'utf-8');
+      console.log(`📝 Added ${ignoreEntry} to target repo .gitignore`);
+    }
+  } catch {
+    // Non-critical
+  }
 } else {
   console.warn(
     '⚠️  NOTES_DIR is not set — set it in .env or as an environment variable',
