@@ -1,10 +1,11 @@
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { handleChat } from './chat.js';
+import { getPreviousConversation } from './prompts.js';
 
 // ---------------------------------------------------------------------------
 // Load .env file (simple built-in loader — no external dependencies)
@@ -50,6 +51,45 @@ app.get('/api/health', (c) => {
 
 // Chat endpoint — the core agentic loop
 app.post('/api/chat', handleChat);
+
+// Session endpoint — check if there's a previous conversation to restore
+app.get('/api/session', (c) => {
+  const notesDir = process.env.NOTES_DIR;
+  if (!notesDir) return c.json({ hasPreviousConversation: false });
+
+  const transcript = getPreviousConversation(notesDir);
+  return c.json({
+    hasPreviousConversation: !!transcript,
+    transcript: transcript || null,
+  });
+});
+
+// New chat — clears the conversation file, optionally archives it
+app.post('/api/new-chat', (c) => {
+  const notesDir = process.env.NOTES_DIR;
+  if (!notesDir) return c.json({ ok: true });
+
+  const nucleusDir = resolve(notesDir, '.nucleus');
+  const convPath = resolve(nucleusDir, 'current-conversation.md');
+
+  try {
+    // Archive previous conversation if it exists
+    const prev = getPreviousConversation(notesDir);
+    if (prev) {
+      const archiveDir = resolve(nucleusDir, 'conversations');
+      mkdirSync(archiveDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      writeFileSync(resolve(archiveDir, `${timestamp}.md`), prev, 'utf-8');
+    }
+
+    // Clear current conversation
+    mkdirSync(nucleusDir, { recursive: true });
+    writeFileSync(convPath, '', 'utf-8');
+    return c.json({ ok: true });
+  } catch {
+    return c.json({ ok: false, error: 'Failed to clear conversation' }, 500);
+  }
+});
 
 // Diff endpoint — returns uncommitted git changes from the notes dir
 app.get('/api/diff', (c) => {

@@ -1,24 +1,43 @@
 import { useChat } from '@ai-sdk/react';
-import { useEffect, useRef, useState, useCallback, KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef, KeyboardEvent } from 'react';
 import Message from './Message';
 import DiffPanel from './DiffPanel';
 
-export default function Chat() {
-  const [error, setError] = useState<string | null>(null);
+export interface ChatHandle {
+  newChat: () => void;
+}
 
-  const { messages, input, setInput, handleSubmit, status } = useChat({
-    api: '/api/chat',
-    maxSteps: 20,
-    onError: (err) => {
-      console.error('[Nucleus] Chat error:', err);
-      setError(err.message || 'An unexpected error occurred');
-    },
-  });
+const Chat = forwardRef<ChatHandle>(function Chat(_, ref) {
+  const [error, setError] = useState<string | null>(null);
+  const [previousTranscript, setPreviousTranscript] = useState<string | null>(null);
+  const [transcriptExpanded, setTranscriptExpanded] = useState(false);
+
+  const { messages, input, setInput, handleSubmit, status, setMessages } =
+    useChat({
+      api: '/api/chat',
+      maxSteps: 20,
+      onError: (err) => {
+        console.error('[Nucleus] Chat error:', err);
+        setError(err.message || 'An unexpected error occurred');
+      },
+    });
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isLoading = status === 'streaming' || status === 'submitted';
+
+  // Check for previous conversation on mount
+  useEffect(() => {
+    fetch('/api/session')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.hasPreviousConversation) {
+          setPreviousTranscript(data.transcript);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Clear error when user sends a new message
   const onSubmit = useCallback(
@@ -28,6 +47,21 @@ export default function Chat() {
     },
     [handleSubmit],
   );
+
+  const handleNewChat = useCallback(async () => {
+    try {
+      await fetch('/api/new-chat', { method: 'POST' });
+      setMessages([]);
+      setError(null);
+      setPreviousTranscript(null);
+      setTranscriptExpanded(false);
+    } catch {
+      // Silently fail
+    }
+  }, [setMessages]);
+
+  // Expose newChat to parent via ref
+  useImperativeHandle(ref, () => ({ newChat: handleNewChat }), [handleNewChat]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -61,12 +95,50 @@ export default function Chat() {
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
       >
-        {messages.length === 0 && !error && (
+        {/* Previous conversation banner */}
+        {previousTranscript && messages.length === 0 && (
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900/50 overflow-hidden">
+            <button
+              onClick={() => setTranscriptExpanded(!transcriptExpanded)}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-neutral-800/50 transition-colors"
+            >
+              <span className="text-neutral-500 text-xs">
+                {transcriptExpanded ? '▾' : '▸'}
+              </span>
+              <span className="text-sm text-neutral-400">
+                Continuing from previous conversation
+              </span>
+              <span className="ml-auto text-[11px] text-neutral-600">
+                click to {transcriptExpanded ? 'hide' : 'view'} transcript
+              </span>
+            </button>
+            {transcriptExpanded && (
+              <div className="px-4 pb-3 max-h-60 overflow-y-auto border-t border-neutral-800">
+                <pre className="text-xs text-neutral-500 whitespace-pre-wrap leading-5 mt-2">
+                  {previousTranscript}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+
+        {messages.length === 0 && !previousTranscript && !error && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center space-y-3">
               <div className="text-4xl">🧬</div>
               <p className="text-neutral-500 text-sm">
                 Start a conversation with Nucleus
+              </p>
+            </div>
+          </div>
+        )}
+
+        {messages.length === 0 && previousTranscript && !error && !transcriptExpanded && (
+          <div className="flex items-center justify-center flex-1">
+            <div className="text-center space-y-3">
+              <div className="text-4xl">🧬</div>
+              <p className="text-neutral-500 text-sm">
+                Pick up where you left off, or start fresh
               </p>
             </div>
           </div>
@@ -106,7 +178,7 @@ export default function Chat() {
         )}
       </div>
 
-      {/* Diff panel — shows uncommitted changes after agent edits */}
+      {/* Diff panel — shows uncommitted changes */}
       <DiffPanel isStreaming={isLoading} />
 
       {/* Input area */}
@@ -140,4 +212,6 @@ export default function Chat() {
       </div>
     </div>
   );
-}
+});
+
+export default Chat;
