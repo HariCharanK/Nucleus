@@ -156,7 +156,7 @@ export function createTextEditorTool(notesDir: string) {
         case 'create': {
           const filePath = safePath(notesDir, args.path);
           mkdirSync(dirname(filePath), { recursive: true });
-          writeFileSync(filePath, args.file_text, 'utf-8');
+          writeFileSync(filePath, args.file_text ?? '', 'utf-8');
           return `File created: ${args.path}`;
         }
 
@@ -168,9 +168,10 @@ export function createTextEditorTool(notesDir: string) {
           }
 
           const content = readFileSync(filePath, 'utf-8');
-          const { old_str, new_str } = args;
+          const oldStr = args.old_str ?? '';
+          const newStr = args.new_str ?? '';
 
-          const occurrences = content.split(old_str).length - 1;
+          const occurrences = content.split(oldStr).length - 1;
           if (occurrences === 0) {
             return `Error: old_str not found in ${args.path}. Make sure the string matches exactly, including whitespace.`;
           }
@@ -178,7 +179,7 @@ export function createTextEditorTool(notesDir: string) {
             return `Error: old_str found ${occurrences} times in ${args.path}. It must appear exactly once for a safe replacement. Include more surrounding context to make it unique.`;
           }
 
-          const updated = content.replace(old_str, new_str ?? '');
+          const updated = content.replace(oldStr, newStr);
           writeFileSync(filePath, updated, 'utf-8');
           return `Successfully replaced text in ${args.path}`;
         }
@@ -192,13 +193,13 @@ export function createTextEditorTool(notesDir: string) {
 
           const content = readFileSync(filePath, 'utf-8');
           const lines = content.split('\n');
-          const insertLine = args.insert_line;
+          const insertLine = args.insert_line ?? 0;
 
           if (insertLine < 0 || insertLine > lines.length) {
             return `Error: insert_line ${insertLine} is out of range (0-${lines.length})`;
           }
 
-          lines.splice(insertLine, 0, args.new_str);
+          lines.splice(insertLine, 0, args.new_str ?? '');
           writeFileSync(filePath, lines.join('\n'), 'utf-8');
           return `Successfully inserted text after line ${insertLine} in ${args.path}`;
         }
