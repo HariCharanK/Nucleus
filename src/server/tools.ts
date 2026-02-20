@@ -7,9 +7,8 @@ import {
   statSync,
   readdirSync,
 } from 'fs';
-import { resolve, dirname, relative, join } from 'path';
+import { resolve, dirname, join } from 'path';
 import { tool } from 'ai';
-import { createAnthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 
 const MAX_OUTPUT_CHARS = 10_000;
@@ -39,7 +38,8 @@ function safePath(notesDir: string, filePath: string): string {
 export function createBashTool(notesDir: string) {
   return tool({
     description:
-      'Execute a shell command. The working directory is always the notes directory. Use for git operations, listing files, searching content, etc.',
+      'Execute a shell command. The working directory is always the notes directory. ' +
+      'Use for git operations, listing files, searching content, etc.',
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
     }),
@@ -71,17 +71,11 @@ export function createBashTool(notesDir: string) {
 /**
  * Add line numbers to file content for display.
  */
-function addLineNumbers(
-  content: string,
-  startLine: number = 1,
-): string {
+function addLineNumbers(content: string, startLine: number = 1): string {
   const lines = content.split('\n');
   const width = String(startLine + lines.length - 1).length;
   return lines
-    .map(
-      (line, i) =>
-        `${String(startLine + i).padStart(width, ' ')}\t${line}`,
-    )
+    .map((line, i) => `${String(startLine + i).padStart(width, ' ')}\t${line}`)
     .join('\n');
 }
 
@@ -92,7 +86,6 @@ function listDirectory(dirPath: string, prefix: string = ''): string {
   const entries = readdirSync(dirPath, { withFileTypes: true })
     .filter((e) => !e.name.startsWith('.git') && e.name !== 'node_modules')
     .sort((a, b) => {
-      // Directories first, then alphabetical
       if (a.isDirectory() && !b.isDirectory()) return -1;
       if (!a.isDirectory() && b.isDirectory()) return 1;
       return a.name.localeCompare(b.name);
@@ -116,96 +109,137 @@ function listDirectory(dirPath: string, prefix: string = ''): string {
 }
 
 /**
- * Build the text_editor tool using Anthropic's native text editor schema.
+ * Build the text editor tool as a standard tool().
  *
- * The Vercel AI SDK's @ai-sdk/anthropic provider exposes the Anthropic text
- * editor tool via `anthropic.tools.textEditor_20250124()`. We pass a custom
- * `execute` function that operates on the local filesystem rooted at notesDir.
+ * Defined as a regular Vercel AI SDK tool instead of using the native
+ * Anthropic provider tool — avoids SDK/API version mismatches on the
+ * tool name (text_editor_20250124 vs str_replace_editor).
+ *
+ * Supports: view (file or directory), create, str_replace, insert.
  */
 export function createTextEditorTool(notesDir: string) {
-  const anthropic = createAnthropic();
+  return tool({
+    description:
+      'A text editor for viewing and editing files in the notes directory. ' +
+      'Commands: view (display file with line numbers, or list directory), ' +
+      'create (create or overwrite a file), ' +
+      'str_replace (find and replace exact text — must be unique), ' +
+      'insert (insert text after a specific line number). ' +
+      'All paths are relative to the notes root.',
+    parameters: z.object({
+      command: z
+        .enum(['view', 'create', 'str_replace', 'insert'])
+        .describe('The operation to perform'),
+      path: z
+        .string()
+        .describe('Path to the file or directory, relative to notes root'),
+      file_text: z
+        .string()
+        .optional()
+        .describe('File content for create command'),
+      old_str: z
+        .string()
+        .optional()
+        .describe('Exact string to find for str_replace (must be unique)'),
+      new_str: z
+        .string()
+        .optional()
+        .describe('Replacement string for str_replace, or text to insert'),
+      view_range: z
+        .array(z.number())
+        .optional()
+        .describe(
+          'Optional [start, end] 1-indexed line range for view command',
+        ),
+      insert_line: z
+        .number()
+        .optional()
+        .describe(
+          'Line number after which to insert text (0 = beginning of file)',
+        ),
+    }),
+    execute: async ({ command, path: filePath, file_text, old_str, new_str, view_range, insert_line }) => {
+      try {
+        switch (command) {
+          case 'view': {
+            const fullPath = safePath(notesDir, filePath);
 
-  return anthropic.tools.textEditor_20250124({
-    execute: async (args) => {
-      const { command } = args;
+            if (!existsSync(fullPath)) {
+              return `Error: Path does not exist: ${filePath}`;
+            }
 
-      switch (command) {
-        case 'view': {
-          const filePath = safePath(notesDir, args.path);
+            const stat = statSync(fullPath);
+            if (stat.isDirectory()) {
+              const tree = listDirectory(fullPath);
+              return `Directory listing of ${filePath}:\n${tree}`;
+            }
 
-          if (!existsSync(filePath)) {
-            return `Error: Path does not exist: ${args.path}`;
+            const content = readFileSync(fullPath, 'utf-8');
+            if (view_range) {
+              const [start, end] = view_range;
+              const lines = content.split('\n');
+              const slice = lines.slice(start - 1, end);
+              return addLineNumbers(slice.join('\n'), start);
+            }
+            return addLineNumbers(content);
           }
 
-          const stat = statSync(filePath);
-          if (stat.isDirectory()) {
-            const tree = listDirectory(filePath);
-            return `Directory listing of ${args.path}:\n${tree}`;
+          case 'create': {
+            const fullPath = safePath(notesDir, filePath);
+            mkdirSync(dirname(fullPath), { recursive: true });
+            writeFileSync(fullPath, file_text ?? '', 'utf-8');
+            return `File created: ${filePath}`;
           }
 
-          const content = readFileSync(filePath, 'utf-8');
-          if (args.view_range) {
-            const [start, end] = args.view_range;
+          case 'str_replace': {
+            const fullPath = safePath(notesDir, filePath);
+
+            if (!existsSync(fullPath)) {
+              return `Error: File does not exist: ${filePath}`;
+            }
+
+            const content = readFileSync(fullPath, 'utf-8');
+            const searchStr = old_str ?? '';
+            const replaceStr = new_str ?? '';
+
+            const occurrences = content.split(searchStr).length - 1;
+            if (occurrences === 0) {
+              return `Error: old_str not found in ${filePath}. Make sure it matches exactly, including whitespace.`;
+            }
+            if (occurrences > 1) {
+              return `Error: old_str found ${occurrences} times in ${filePath}. It must appear exactly once. Include more context to make it unique.`;
+            }
+
+            const updated = content.replace(searchStr, replaceStr);
+            writeFileSync(fullPath, updated, 'utf-8');
+            return `Successfully replaced text in ${filePath}`;
+          }
+
+          case 'insert': {
+            const fullPath = safePath(notesDir, filePath);
+
+            if (!existsSync(fullPath)) {
+              return `Error: File does not exist: ${filePath}`;
+            }
+
+            const content = readFileSync(fullPath, 'utf-8');
             const lines = content.split('\n');
-            const slice = lines.slice(start - 1, end);
-            return addLineNumbers(slice.join('\n'), start);
+            const lineNo = insert_line ?? 0;
+
+            if (lineNo < 0 || lineNo > lines.length) {
+              return `Error: insert_line ${lineNo} is out of range (0-${lines.length})`;
+            }
+
+            lines.splice(lineNo, 0, new_str ?? '');
+            writeFileSync(fullPath, lines.join('\n'), 'utf-8');
+            return `Successfully inserted text after line ${lineNo} in ${filePath}`;
           }
-          return addLineNumbers(content);
+
+          default:
+            return `Error: Unknown command: ${command}`;
         }
-
-        case 'create': {
-          const filePath = safePath(notesDir, args.path);
-          mkdirSync(dirname(filePath), { recursive: true });
-          writeFileSync(filePath, args.file_text ?? '', 'utf-8');
-          return `File created: ${args.path}`;
-        }
-
-        case 'str_replace': {
-          const filePath = safePath(notesDir, args.path);
-
-          if (!existsSync(filePath)) {
-            return `Error: File does not exist: ${args.path}`;
-          }
-
-          const content = readFileSync(filePath, 'utf-8');
-          const oldStr = args.old_str ?? '';
-          const newStr = args.new_str ?? '';
-
-          const occurrences = content.split(oldStr).length - 1;
-          if (occurrences === 0) {
-            return `Error: old_str not found in ${args.path}. Make sure the string matches exactly, including whitespace.`;
-          }
-          if (occurrences > 1) {
-            return `Error: old_str found ${occurrences} times in ${args.path}. It must appear exactly once for a safe replacement. Include more surrounding context to make it unique.`;
-          }
-
-          const updated = content.replace(oldStr, newStr);
-          writeFileSync(filePath, updated, 'utf-8');
-          return `Successfully replaced text in ${args.path}`;
-        }
-
-        case 'insert': {
-          const filePath = safePath(notesDir, args.path);
-
-          if (!existsSync(filePath)) {
-            return `Error: File does not exist: ${args.path}`;
-          }
-
-          const content = readFileSync(filePath, 'utf-8');
-          const lines = content.split('\n');
-          const insertLine = args.insert_line ?? 0;
-
-          if (insertLine < 0 || insertLine > lines.length) {
-            return `Error: insert_line ${insertLine} is out of range (0-${lines.length})`;
-          }
-
-          lines.splice(insertLine, 0, args.new_str ?? '');
-          writeFileSync(filePath, lines.join('\n'), 'utf-8');
-          return `Successfully inserted text after line ${insertLine} in ${args.path}`;
-        }
-
-        default:
-          return `Error: Unknown command: ${command}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : String(err)}`;
       }
     },
   });
