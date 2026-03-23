@@ -91,16 +91,62 @@ describe('Messages', () => {
     expect(msgs[1].content).toBe('hi there');
   });
 
-  it('stores and retrieves parts as JSON', async () => {
+  it('stores full message object as JSON in data column', async () => {
     const session = await createSession(TEST_DIR);
-    const parts = [{ type: 'text', text: 'hello' }];
-    await addMessage(TEST_DIR, session.id, {
-      role: 'user',
-      content: 'hello',
-      parts,
-    });
+    const fullMessage = {
+      id: 'msg-123',
+      role: 'assistant',
+      content: 'I ran a command',
+      parts: [
+        { type: 'text', text: 'I ran a command' },
+        {
+          type: 'tool-invocation',
+          toolInvocation: {
+            toolCallId: 'tc-1',
+            toolName: 'bash',
+            args: { command: 'ls -la' },
+            state: 'result',
+            result: 'file1.md\nfile2.md\n',
+          },
+        },
+      ],
+      createdAt: '2024-01-01T00:00:00Z',
+    };
+    await addMessage(TEST_DIR, session.id, fullMessage);
+
     const msgs = await getMessages(TEST_DIR, session.id);
-    expect(JSON.parse(msgs[0].parts!)).toEqual(parts);
+    expect(msgs).toHaveLength(1);
+
+    // Verify full object is preserved
+    const restored = JSON.parse(msgs[0].data);
+    expect(restored.id).toBe('msg-123');
+    expect(restored.parts).toHaveLength(2);
+    expect(restored.parts[1].toolInvocation.result).toBe(
+      'file1.md\nfile2.md\n',
+    );
+    expect(restored.createdAt).toBe('2024-01-01T00:00:00Z');
+
+    // Denormalized columns also work for querying
+    expect(msgs[0].role).toBe('assistant');
+    expect(msgs[0].content).toBe('I ran a command');
+  });
+
+  it('preserves reasoning parts', async () => {
+    const session = await createSession(TEST_DIR);
+    const message = {
+      role: 'assistant',
+      content: 'answer',
+      parts: [
+        { type: 'reasoning', reasoning: 'Let me think about this...' },
+        { type: 'text', text: 'answer' },
+      ],
+    };
+    await addMessage(TEST_DIR, session.id, message);
+
+    const msgs = await getMessages(TEST_DIR, session.id);
+    const restored = JSON.parse(msgs[0].data);
+    expect(restored.parts[0].type).toBe('reasoning');
+    expect(restored.parts[0].reasoning).toBe('Let me think about this...');
   });
 
   it('replaces all messages for a session', async () => {

@@ -34,10 +34,6 @@ const Chat = forwardRef<ChatHandle, ChatProps>(function Chat(
         console.error('[Nucleus] Chat error:', err);
         setError(err.message || 'An unexpected error occurred');
       },
-      onFinish: () => {
-        // Save messages after the assistant finishes responding
-        saveMessages();
-      },
     });
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -53,7 +49,7 @@ const Chat = forwardRef<ChatHandle, ChatProps>(function Chat(
     sessionIdRef.current = sessionId;
   }, [sessionId]);
 
-  /** Save current messages to the server. */
+  /** Save current messages to the server (full message objects). */
   const saveMessages = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -64,18 +60,31 @@ const Chat = forwardRef<ChatHandle, ChatProps>(function Chat(
       await fetch(`/api/sessions/${sid}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: msgs.map((m) => ({
-            role: m.role,
-            content: m.content,
-            parts: m.parts,
-          })),
-        }),
+        body: JSON.stringify({ messages: msgs }),
       });
     } catch {
-      // Silently fail — message save is best-effort
+      // Best-effort save
     }
   }, []);
+
+  /**
+   * Save messages when status transitions to 'ready' (stream finished).
+   * This is more reliable than onFinish — React state is guaranteed
+   * to be up-to-date when useEffect fires.
+   */
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+
+    if (
+      (prev === 'streaming' || prev === 'submitted') &&
+      status === 'ready' &&
+      sessionIdRef.current
+    ) {
+      saveMessages();
+    }
+  }, [status, saveMessages]);
 
   /** Create a new session on the server, return its ID. */
   const createNewSession = useCallback(async (): Promise<string> => {
@@ -93,7 +102,6 @@ const Chat = forwardRef<ChatHandle, ChatProps>(function Chat(
     async (id: string | null) => {
       setError(null);
       if (!id) {
-        // New chat — clear everything
         setSessionId(null);
         setMessages([]);
         return;
@@ -121,7 +129,6 @@ const Chat = forwardRef<ChatHandle, ChatProps>(function Chat(
       e.preventDefault();
       setError(null);
 
-      // Create session on first message
       if (!sessionId) {
         try {
           const newId = await createNewSession();

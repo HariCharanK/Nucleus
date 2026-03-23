@@ -37,13 +37,15 @@ export async function getDb(notesDir: string): Promise<Database> {
     )
   `);
 
+  // messages stores the full message object as JSON in the 'data' column.
+  // role and content are denormalized for easy querying/searching.
   db.run(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
       role TEXT NOT NULL,
       content TEXT NOT NULL DEFAULT '',
-      parts TEXT,
+      data TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     )
@@ -80,7 +82,7 @@ export interface MessageRow {
   session_id: string;
   role: string;
   content: string;
-  parts: string | null;
+  data: string; // full JSON blob of the original message
   created_at: string;
 }
 
@@ -173,20 +175,20 @@ export async function deleteSession(
 // Messages
 // ---------------------------------------------------------------------------
 
-/** Append a message to a session. */
+/** Append a message to a session. Stores the full message object as JSON. */
 export async function addMessage(
   notesDir: string,
   sessionId: string,
-  message: { role: string; content: string; parts?: unknown[] },
+  message: Record<string, unknown>,
 ): Promise<void> {
   const d = await getDb(notesDir);
   d.run(
-    'INSERT INTO messages (session_id, role, content, parts) VALUES (?, ?, ?, ?)',
+    'INSERT INTO messages (session_id, role, content, data) VALUES (?, ?, ?, ?)',
     [
       sessionId,
-      message.role,
-      message.content,
-      message.parts ? JSON.stringify(message.parts) : null,
+      (message.role as string) ?? 'user',
+      (message.content as string) ?? '',
+      JSON.stringify(message),
     ],
   );
   d.run("UPDATE sessions SET updated_at = datetime('now') WHERE id = ?", [
@@ -195,7 +197,7 @@ export async function addMessage(
   persist();
 }
 
-/** Get all messages for a session, in order. */
+/** Get all messages for a session, in order. Returns the full message objects. */
 export async function getMessages(
   notesDir: string,
   sessionId: string,
@@ -211,28 +213,28 @@ export async function getMessages(
     session_id: r[1] as string,
     role: r[2] as string,
     content: r[3] as string,
-    parts: r[4] as string | null,
+    data: r[4] as string,
     created_at: r[5] as string,
   }));
 }
 
-/** Replace all messages for a session (used by useChat bulk save). */
+/** Replace all messages for a session. Each message is stored as a full JSON blob. */
 export async function replaceMessages(
   notesDir: string,
   sessionId: string,
-  messages: { role: string; content: string; parts?: unknown[] }[],
+  messages: Record<string, unknown>[],
 ): Promise<void> {
   const d = await getDb(notesDir);
   d.run('DELETE FROM messages WHERE session_id = ?', [sessionId]);
 
   for (const msg of messages) {
     d.run(
-      'INSERT INTO messages (session_id, role, content, parts) VALUES (?, ?, ?, ?)',
+      'INSERT INTO messages (session_id, role, content, data) VALUES (?, ?, ?, ?)',
       [
         sessionId,
-        msg.role,
-        msg.content,
-        msg.parts ? JSON.stringify(msg.parts) : null,
+        (msg.role as string) ?? 'user',
+        (msg.content as string) ?? '',
+        JSON.stringify(msg),
       ],
     );
   }

@@ -84,11 +84,8 @@ app.get('/api/sessions/:id', async (c) => {
   if (!notesDir) return c.json({ error: 'NOTES_DIR not set' }, 500);
   const session = await getSession(notesDir, c.req.param('id'));
   if (!session) return c.json({ error: 'Session not found' }, 404);
-  const messages = (await getMessages(notesDir, session.id)).map((m) => ({
-    role: m.role,
-    content: m.content,
-    parts: m.parts ? JSON.parse(m.parts) : undefined,
-  }));
+  const messageRows = await getMessages(notesDir, session.id);
+  const messages = messageRows.map((m) => JSON.parse(m.data));
   return c.json({ ...session, messages });
 });
 
