@@ -1,86 +1,137 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { Hono } from 'hono';
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdirSync, rmSync } from 'fs';
 import { resolve } from 'path';
-import { execSync } from 'child_process';
+import {
+  createSession,
+  listSessions,
+  getSession,
+  updateSession,
+  deleteSession,
+  addMessage,
+  getMessages,
+  replaceMessages,
+  titleFromMessage,
+  resetDb,
+} from './db.js';
 
 const TEST_DIR = resolve(import.meta.dirname, '../../.test-notes-server');
 
-// We test the Hono routes in isolation by recreating the app
-function createTestApp() {
-  const app = new Hono();
-
-  app.get('/api/health', (c) => {
-    return c.json({
-      ok: true,
-      notesDir: TEST_DIR,
-      hasApiKey: true,
-      model: 'test-model',
-    });
-  });
-
-  app.get('/api/diff', (c) => {
-    try {
-      const diff = execSync('git diff', {
-        cwd: TEST_DIR,
-        encoding: 'utf-8',
-        timeout: 5000,
-      });
-      const stat = execSync('git diff --stat', {
-        cwd: TEST_DIR,
-        encoding: 'utf-8',
-        timeout: 5000,
-      });
-      return c.json({ diff, stat });
-    } catch {
-      return c.json({ diff: '', stat: '' });
-    }
-  });
-
-  return app;
-}
-
 beforeEach(() => {
-  mkdirSync(TEST_DIR, { recursive: true });
-  execSync('git init && git config user.email "test@test.com" && git config user.name "Test"', {
-    cwd: TEST_DIR,
-    stdio: 'pipe',
-  });
-  writeFileSync(resolve(TEST_DIR, 'note.md'), '# Hello\n');
-  execSync('git add -A && git commit -m "init"', {
-    cwd: TEST_DIR,
-    stdio: 'pipe',
-  });
+  mkdirSync(resolve(TEST_DIR, '.nucleus'), { recursive: true });
 });
 
 afterEach(() => {
+  resetDb();
   rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
-describe('API endpoints', () => {
-  it('GET /api/health returns ok', async () => {
-    const app = createTestApp();
-    const res = await app.request('/api/health');
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.notesDir).toBe(TEST_DIR);
+describe('Session CRUD', () => {
+  it('creates a session with default title', async () => {
+    const session = await createSession(TEST_DIR);
+    expect(session.id).toBeTruthy();
+    expect(session.title).toBe('Untitled');
+    expect(session.created_at).toBeTruthy();
   });
 
-  it('GET /api/diff returns empty when no changes', async () => {
-    const app = createTestApp();
-    const res = await app.request('/api/diff');
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.diff).toBe('');
+  it('creates a session with custom title', async () => {
+    const session = await createSession(TEST_DIR, 'My Notes');
+    expect(session.title).toBe('My Notes');
   });
 
-  it('GET /api/diff returns diff when files are modified', async () => {
-    writeFileSync(resolve(TEST_DIR, 'note.md'), '# Hello\n\nNew content.\n');
-    const app = createTestApp();
-    const res = await app.request('/api/diff');
-    const body = await res.json();
-    expect(body.diff).toContain('+New content.');
-    expect(body.stat).toContain('note.md');
+  it('lists all sessions', async () => {
+    await createSession(TEST_DIR, 'First');
+    await createSession(TEST_DIR, 'Second');
+    const sessions = await listSessions(TEST_DIR);
+    expect(sessions).toHaveLength(2);
+    const titles = sessions.map((s) => s.title);
+    expect(titles).toContain('First');
+    expect(titles).toContain('Second');
+  });
+
+  it('gets a session by ID', async () => {
+    const created = await createSession(TEST_DIR, 'Test');
+    const found = await getSession(TEST_DIR, created.id);
+    expect(found).not.toBeNull();
+    expect(found!.title).toBe('Test');
+  });
+
+  it('returns null for nonexistent session', async () => {
+    const found = await getSession(TEST_DIR, 'nonexistent');
+    expect(found).toBeNull();
+  });
+
+  it('updates session title', async () => {
+    const session = await createSession(TEST_DIR);
+    await updateSession(TEST_DIR, session.id, { title: 'Renamed' });
+    const found = await getSession(TEST_DIR, session.id);
+    expect(found!.title).toBe('Renamed');
+  });
+
+  it('deletes a session', async () => {
+    const session = await createSession(TEST_DIR, 'Doomed');
+    await addMessage(TEST_DIR, session.id, { role: 'user', content: 'hello' });
+    await deleteSession(TEST_DIR, session.id);
+    expect(await getSession(TEST_DIR, session.id)).toBeNull();
+  });
+});
+
+describe('Messages', () => {
+  it('adds and retrieves messages in order', async () => {
+    const session = await createSession(TEST_DIR);
+    await addMessage(TEST_DIR, session.id, { role: 'user', content: 'hello' });
+    await addMessage(TEST_DIR, session.id, {
+      role: 'assistant',
+      content: 'hi there',
+    });
+    const msgs = await getMessages(TEST_DIR, session.id);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe('user');
+    expect(msgs[0].content).toBe('hello');
+    expect(msgs[1].role).toBe('assistant');
+    expect(msgs[1].content).toBe('hi there');
+  });
+
+  it('stores and retrieves parts as JSON', async () => {
+    const session = await createSession(TEST_DIR);
+    const parts = [{ type: 'text', text: 'hello' }];
+    await addMessage(TEST_DIR, session.id, {
+      role: 'user',
+      content: 'hello',
+      parts,
+    });
+    const msgs = await getMessages(TEST_DIR, session.id);
+    expect(JSON.parse(msgs[0].parts!)).toEqual(parts);
+  });
+
+  it('replaces all messages for a session', async () => {
+    const session = await createSession(TEST_DIR);
+    await addMessage(TEST_DIR, session.id, { role: 'user', content: 'old' });
+
+    await replaceMessages(TEST_DIR, session.id, [
+      { role: 'user', content: 'new message 1' },
+      { role: 'assistant', content: 'new response' },
+    ]);
+
+    const msgs = await getMessages(TEST_DIR, session.id);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].content).toBe('new message 1');
+    expect(msgs[1].content).toBe('new response');
+  });
+});
+
+describe('titleFromMessage', () => {
+  it('returns short messages as-is', () => {
+    expect(titleFromMessage('Hello world')).toBe('Hello world');
+  });
+
+  it('truncates long messages', () => {
+    const long = 'A'.repeat(100);
+    const title = titleFromMessage(long);
+    expect(title.length).toBeLessThanOrEqual(50);
+    expect(title).toContain('…');
+  });
+
+  it('cleans up whitespace', () => {
+    expect(titleFromMessage('  hello\n  world  ')).toBe('hello world');
   });
 });

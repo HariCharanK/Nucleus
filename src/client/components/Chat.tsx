@@ -1,16 +1,30 @@
 import { useChat } from '@ai-sdk/react';
-import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef, KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useImperativeHandle,
+  forwardRef,
+  KeyboardEvent,
+} from 'react';
 import Message from './Message';
 import DiffPanel from './DiffPanel';
 
 export interface ChatHandle {
-  newChat: () => void;
+  loadSession: (sessionId: string | null) => void;
 }
 
-const Chat = forwardRef<ChatHandle>(function Chat(_, ref) {
+interface ChatProps {
+  onSessionChange: (sessionId: string) => void;
+}
+
+const Chat = forwardRef<ChatHandle, ChatProps>(function Chat(
+  { onSessionChange },
+  ref,
+) {
   const [error, setError] = useState<string | null>(null);
-  const [previousTranscript, setPreviousTranscript] = useState<string | null>(null);
-  const [transcriptExpanded, setTranscriptExpanded] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const { messages, input, setInput, handleSubmit, status, setMessages } =
     useChat({
@@ -20,48 +34,110 @@ const Chat = forwardRef<ChatHandle>(function Chat(_, ref) {
         console.error('[Nucleus] Chat error:', err);
         setError(err.message || 'An unexpected error occurred');
       },
+      onFinish: () => {
+        // Save messages after the assistant finishes responding
+        saveMessages();
+      },
     });
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   const isLoading = status === 'streaming' || status === 'submitted';
 
-  // Check for previous conversation on mount
+  // Keep sessionIdRef in sync
   useEffect(() => {
-    fetch('/api/session')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.hasPreviousConversation) {
-          setPreviousTranscript(data.transcript);
-        }
-      })
-      .catch(() => {});
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  /** Save current messages to the server. */
+  const saveMessages = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    const msgs = messagesRef.current;
+    if (msgs.length === 0) return;
+
+    try {
+      await fetch(`/api/sessions/${sid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: msgs.map((m) => ({
+            role: m.role,
+            content: m.content,
+            parts: m.parts,
+          })),
+        }),
+      });
+    } catch {
+      // Silently fail — message save is best-effort
+    }
   }, []);
 
-  // Clear error when user sends a new message
-  const onSubmit = useCallback(
-    (e: React.FormEvent) => {
+  /** Create a new session on the server, return its ID. */
+  const createNewSession = useCallback(async (): Promise<string> => {
+    const res = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    return data.id;
+  }, []);
+
+  /** Load a session from the server, or reset for a new chat. */
+  const loadSession = useCallback(
+    async (id: string | null) => {
       setError(null);
-      handleSubmit(e);
+      if (!id) {
+        // New chat — clear everything
+        setSessionId(null);
+        setMessages([]);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/sessions/${id}`);
+        if (!res.ok) throw new Error('Failed to load session');
+        const data = await res.json();
+        setSessionId(id);
+        setMessages(data.messages ?? []);
+      } catch {
+        setError('Failed to load conversation');
+      }
     },
-    [handleSubmit],
+    [setMessages],
   );
 
-  const handleNewChat = useCallback(async () => {
-    try {
-      await fetch('/api/new-chat', { method: 'POST' });
-      setMessages([]);
-      setError(null);
-      setPreviousTranscript(null);
-      setTranscriptExpanded(false);
-    } catch {
-      // Silently fail
-    }
-  }, [setMessages]);
+  // Expose loadSession to parent
+  useImperativeHandle(ref, () => ({ loadSession }), [loadSession]);
 
-  // Expose newChat to parent via ref
-  useImperativeHandle(ref, () => ({ newChat: handleNewChat }), [handleNewChat]);
+  // Handle submit — create session if needed, then send
+  const onSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setError(null);
+
+      // Create session on first message
+      if (!sessionId) {
+        try {
+          const newId = await createNewSession();
+          setSessionId(newId);
+          sessionIdRef.current = newId;
+          onSessionChange(newId);
+        } catch {
+          setError('Failed to create session');
+          return;
+        }
+      }
+
+      handleSubmit(e);
+    },
+    [handleSubmit, sessionId, createNewSession, onSessionChange],
+  );
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -88,6 +164,19 @@ const Chat = forwardRef<ChatHandle>(function Chat(_, ref) {
     }
   };
 
+  // Notify parent when session gets its first response (for sidebar refresh)
+  const prevMsgCountRef = useRef(0);
+  useEffect(() => {
+    if (
+      messages.length > 0 &&
+      messages.length !== prevMsgCountRef.current &&
+      sessionId
+    ) {
+      onSessionChange(sessionId);
+    }
+    prevMsgCountRef.current = messages.length;
+  }, [messages.length, sessionId, onSessionChange]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Messages area */}
@@ -95,50 +184,12 @@ const Chat = forwardRef<ChatHandle>(function Chat(_, ref) {
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
       >
-        {/* Previous conversation banner */}
-        {previousTranscript && messages.length === 0 && (
-          <div className="rounded-lg border border-neutral-800 bg-neutral-900/50 overflow-hidden">
-            <button
-              onClick={() => setTranscriptExpanded(!transcriptExpanded)}
-              className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-neutral-800/50 transition-colors"
-            >
-              <span className="text-neutral-500 text-xs">
-                {transcriptExpanded ? '▾' : '▸'}
-              </span>
-              <span className="text-sm text-neutral-400">
-                Continuing from previous conversation
-              </span>
-              <span className="ml-auto text-[11px] text-neutral-600">
-                click to {transcriptExpanded ? 'hide' : 'view'} transcript
-              </span>
-            </button>
-            {transcriptExpanded && (
-              <div className="px-4 pb-3 max-h-60 overflow-y-auto border-t border-neutral-800">
-                <pre className="text-xs text-neutral-500 whitespace-pre-wrap leading-5 mt-2">
-                  {previousTranscript}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
-
-        {messages.length === 0 && !previousTranscript && !error && (
+        {messages.length === 0 && !error && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center space-y-3">
               <div className="text-4xl">🧬</div>
               <p className="text-neutral-500 text-sm">
                 Start a conversation with Nucleus
-              </p>
-            </div>
-          </div>
-        )}
-
-        {messages.length === 0 && previousTranscript && !error && !transcriptExpanded && (
-          <div className="flex items-center justify-center flex-1">
-            <div className="text-center space-y-3">
-              <div className="text-4xl">🧬</div>
-              <p className="text-neutral-500 text-sm">
-                Pick up where you left off, or start fresh
               </p>
             </div>
           </div>
@@ -192,7 +243,9 @@ const Chat = forwardRef<ChatHandle>(function Chat(_, ref) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isLoading ? 'Type your next message…' : 'Message Nucleus…'}
+            placeholder={
+              isLoading ? 'Type your next message…' : 'Message Nucleus…'
+            }
             rows={1}
             className="flex-1 bg-neutral-900 border border-neutral-800 rounded-lg px-4 py-3 text-sm text-neutral-100 placeholder-neutral-600 resize-none focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition-colors"
           />

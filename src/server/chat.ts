@@ -15,18 +15,16 @@ const CACHE_CONTROL = {
 
 /**
  * Extract text-only parts from conversation messages.
- * Skips tool calls, reasoning, and other non-text parts.
+ * Written to .nucleus/current-conversation.md for git commit context.
  */
 function extractConversationText(messages: any[]): string {
   const lines: string[] = [];
   for (const msg of messages) {
     const role = msg.role === 'user' ? 'User' : 'Nucleus';
-    // Handle string content (simple messages)
     if (typeof msg.content === 'string' && msg.content.trim()) {
       lines.push(`${role}: ${msg.content.trim()}`);
       continue;
     }
-    // Handle parts array (rich messages from useChat)
     if (Array.isArray(msg.parts)) {
       const textParts = msg.parts
         .filter((p: any) => p.type === 'text' && p.text?.trim())
@@ -40,8 +38,8 @@ function extractConversationText(messages: any[]): string {
 }
 
 /**
- * Write the conversation text to .nucleus/current-conversation.md
- * so the agent can reference it when making git commits.
+ * Write conversation text to .nucleus/current-conversation.md
+ * so the agent can reference it when composing git commit messages.
  */
 function writeConversationFile(notesDir: string, messages: any[]): void {
   const text = extractConversationText(messages);
@@ -84,7 +82,7 @@ export async function handleChat(c: Context): Promise<Response> {
     return c.json({ error: 'messages array is required' }, 400);
   }
 
-  // Write conversation text to .nucleus/ for git commit context
+  // Write conversation text for git commit context
   writeConversationFile(notesDir, messages);
 
   const modelId = process.env.MODEL || DEFAULT_MODEL;

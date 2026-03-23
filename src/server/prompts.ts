@@ -29,19 +29,7 @@ function getMemory(notesDir: string): string | null {
   }
 }
 
-/**
- * Read the previous conversation transcript if it exists.
- */
-export function getPreviousConversation(notesDir: string): string | null {
-  const convPath = resolve(notesDir, '.nucleus', 'current-conversation.md');
-  if (!existsSync(convPath)) return null;
-  try {
-    const content = readFileSync(convPath, 'utf-8').trim();
-    return content || null;
-  } catch {
-    return null;
-  }
-}
+
 
 /**
  * Build the system prompt for the Nucleus agent.
@@ -51,7 +39,6 @@ export async function buildSystemPrompt(
 ): Promise<string> {
   const tree = getDirectoryTree(notesDir);
   const memory = getMemory(notesDir);
-  const previousConversation = getPreviousConversation(notesDir);
 
   const parts: string[] = [
     `You are **Nucleus** — an intelligent thought-routing agent that manages a personal knowledge base of markdown notes.
@@ -135,17 +122,6 @@ ${memory}
 \`\`\`
 
 Refer back to this memory before making organizational decisions, naming files, formatting content, or suggesting changes. When in doubt, check memory first.`);
-  }
-
-  // Inject previous conversation context for continuity across refreshes
-  if (previousConversation) {
-    parts.push(`## Previous Conversation
-
-The user may have refreshed or restarted the chat. Here is the transcript from the previous conversation for context. Use this to maintain continuity — if the user references something from before, you'll know what they mean. Don't repeat or summarize this unprompted.
-
-\`\`\`
-${previousConversation}
-\`\`\``);
   }
 
   parts.push(`## Important
