@@ -47,13 +47,15 @@ describe('buildSystemPrompt', () => {
       'User prefers flat directory structures.\n',
     );
     const prompt = await buildSystemPrompt(TEST_DIR);
-    expect(prompt).toContain('Your Memory');
+    expect(prompt).toContain('Your Memory (IMPORTANT');
     expect(prompt).toContain('flat directory structures');
+    expect(prompt).toContain('check memory first');
   });
 
   it('works without .nucleus/memory.md', async () => {
     const prompt = await buildSystemPrompt(TEST_DIR);
-    expect(prompt).not.toContain('Your Memory');
+    // The injected memory section header should NOT be present
+    expect(prompt).not.toContain('Your Memory (IMPORTANT');
     // Should still have the core prompt
     expect(prompt).toContain('Nucleus');
   });
