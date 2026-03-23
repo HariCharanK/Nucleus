@@ -213,7 +213,7 @@ if (process.env.NOTES_DIR) {
   mkdirSync(resolve(notesDir, '.nucleus'), { recursive: true });
 
   const gitignorePath = resolve(notesDir, '.gitignore');
-  const ignoreEntries = ['.nucleus/conversations/', '.nucleus/nucleus.db', '.nucleus/nucleus.db-wal', '.nucleus/nucleus.db-shm'];
+  const ignoreEntries = ['.nucleus/conversations/'];
   try {
     const existing = existsSync(gitignorePath)
       ? readFileSync(gitignorePath, 'utf-8')
