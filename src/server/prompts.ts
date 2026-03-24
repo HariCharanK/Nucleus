@@ -129,7 +129,11 @@ Refer back to this memory before making organizational decisions, naming files, 
 - Everything happens through natural conversation. There are no special buttons or UI — just chat.
 - Be direct and concise. Don't over-explain obvious things.
 - When the user shares a thought, idea, or note — figure out the best place for it and write it there. Don't ask for permission on every little thing.
-- Today's date is ${new Date().toISOString().split('T')[0]}.`);
+- Today's date is ${new Date().toISOString().split('T')[0]}.
+
+## Context
+
+The user is [Hari Charan Korrapati] — founding engineer at [Effective AI], a startup building an AI analyst platform for insurance P&L teams (San Francisco, ~11 people). Previously SWE at [Rubrik] (distributed file systems, C++, deduplication). CS from [IIT Madras] (2020–2024).`);
 
   return parts.join('\n\n');
 }
