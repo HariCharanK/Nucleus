@@ -214,9 +214,10 @@ const Chat = forwardRef<ChatHandle, ChatProps>(function Chat(
           messages.length > 0 &&
           messages[messages.length - 1].role === 'user' && (
             <div className="flex justify-start">
-              <div className="text-[11px] text-emerald-500/70 font-medium tracking-wide uppercase flex items-center gap-2">
-                <span className="inline-block w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                Thinking…
+              <div className="flex items-center gap-1.5 py-1">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-[pulse_1.4s_ease-in-out_infinite]" />
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
               </div>
             </div>
           )}
@@ -237,7 +238,9 @@ const Chat = forwardRef<ChatHandle, ChatProps>(function Chat(
       </div>
 
       {/* Diff panel — shows uncommitted changes */}
-      <DiffPanel isStreaming={isLoading} />
+      <div className="pt-2">
+        <DiffPanel isStreaming={isLoading} />
+      </div>
 
       {/* Input area */}
       <div className="border-t border-neutral-800 p-4">
