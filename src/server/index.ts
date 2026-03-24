@@ -162,7 +162,7 @@ app.get('/api/diff', (c) => {
     let fullDiff = diff;
     if (untracked) {
       for (const file of untracked.split('\n')) {
-        if (!file) continue;
+        if (!file || file.startsWith('.nucleus/')) continue;
         try {
           const content = readFileSync(resolve(notesDir, file), 'utf-8');
           fullDiff += `\ndiff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${content.split('\n').length} @@\n`;
@@ -177,7 +177,17 @@ app.get('/api/diff', (c) => {
       }
     }
 
-    return c.json({ diff: fullDiff, stat, untracked });
+    // Strip .nucleus/ paths from diff — internal files, not user content
+    const filteredDiff = fullDiff
+      .split(/(?=^diff --git )/m)
+      .filter((chunk) => !chunk.includes('a/.nucleus/') && !chunk.includes('b/.nucleus/'))
+      .join('');
+    const filteredStat = stat
+      .split('\n')
+      .filter((line) => !line.includes('.nucleus/'))
+      .join('\n');
+
+    return c.json({ diff: filteredDiff, stat: filteredStat, untracked });
   } catch {
     return c.json({ diff: '', stat: '' });
   }
