@@ -11,7 +11,7 @@ interface DiffData {
  * DiffPanel — shows uncommitted git changes from the notes dir.
  * Polls every 2s while the agent is streaming, fetches once when idle.
  */
-export default function DiffPanel({ isStreaming }: { isStreaming: boolean }) {
+export default function DiffPanel({ isStreaming, onToggle }: { isStreaming: boolean; onToggle?: () => void }) {
   const [data, setData] = useState<DiffData | null>(null);
   const [expanded, setExpanded] = useState(true);
   const prevDiffRef = useRef<string>('');
@@ -27,6 +27,7 @@ export default function DiffPanel({ isStreaming }: { isStreaming: boolean }) {
           setData(json);
           if (json.diff?.trim()) {
             setExpanded(true);
+            onToggle?.();
           }
         }
       }
@@ -55,7 +56,7 @@ export default function DiffPanel({ isStreaming }: { isStreaming: boolean }) {
   return (
     <div className="border-t border-neutral-800 bg-neutral-950">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => { setExpanded(!expanded); onToggle?.(); }}
         className="w-full flex items-center gap-2 px-4 py-2 text-xs hover:bg-neutral-900 transition-colors"
       >
         <span className="text-neutral-500">{expanded ? '▾' : '▸'}</span>
@@ -71,7 +72,7 @@ export default function DiffPanel({ isStreaming }: { isStreaming: boolean }) {
       </button>
 
       {expanded && (
-        <div className="px-4 pb-3 max-h-[40vh] overflow-y-auto">
+        <div className="px-4 pb-3 max-h-60 overflow-y-auto">
           <DiffView diff={data.diff} />
         </div>
       )}

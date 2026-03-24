@@ -238,8 +238,15 @@ const Chat = forwardRef<ChatHandle, ChatProps>(function Chat(
       </div>
 
       {/* Diff panel — shows uncommitted changes */}
-      <div className="pt-2">
-        <DiffPanel isStreaming={isLoading} />
+      <div className="shrink-0">
+        <DiffPanel isStreaming={isLoading} onToggle={() => {
+          // Scroll chat to bottom when diff panel expands/collapses
+          setTimeout(() => {
+            if (scrollRef.current) {
+              scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            }
+          }, 50);
+        }} />
       </div>
 
       {/* Input area */}
