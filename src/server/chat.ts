@@ -1,14 +1,12 @@
 import type { Context } from 'hono';
-import { createAnthropic } from '@ai-sdk/anthropic';
 import { streamText, type CoreMessage } from 'ai';
 import { writeFileSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
 import { createBashTool, createTextEditorTool } from './tools.js';
 import { buildSystemPrompt } from './prompts.js';
+import { apiKeyVar, createModel, hasApiKey } from './provider.js';
 
-const DEFAULT_MODEL = 'claude-opus-4-6';
-
-/** Anthropic cache control — marks content as cacheable (ephemeral) */
+/** Anthropic cache control — marks content as cacheable (ephemeral); ignored by other providers */
 const CACHE_CONTROL = {
   anthropic: { cacheControl: { type: 'ephemeral' as const } },
 };
@@ -62,10 +60,9 @@ export async function handleChat(c: Context): Promise<Response> {
     return c.json({ error: 'NOTES_DIR environment variable is not set' }, 500);
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  if (!hasApiKey()) {
     return c.json(
-      { error: 'ANTHROPIC_API_KEY environment variable is not set' },
+      { error: `${apiKeyVar()} environment variable is not set` },
       500,
     );
   }
@@ -85,8 +82,6 @@ export async function handleChat(c: Context): Promise<Response> {
   // Write conversation text for git commit context
   writeConversationFile(notesDir, messages);
 
-  const modelId = process.env.MODEL || DEFAULT_MODEL;
-  const anthropic = createAnthropic({ apiKey });
   const systemPrompt = await buildSystemPrompt(notesDir);
 
   const systemMessage: CoreMessage = {
@@ -96,7 +91,7 @@ export async function handleChat(c: Context): Promise<Response> {
   };
 
   const result = streamText({
-    model: anthropic(modelId),
+    model: createModel(),
     messages: [systemMessage, ...messages],
     tools: {
       bash: createBashTool(notesDir),
