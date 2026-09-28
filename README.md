@@ -22,7 +22,7 @@ npm install
 
 # Configure
 cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY and NOTES_DIR
+# Edit .env: set ANTHROPIC_API_KEY (or OPENAI_API_KEY) and NOTES_DIR
 
 # Make sure your notes directory is a git repo
 cd /path/to/your/notes && git init && git add -A && git commit -m "Initial commit"
@@ -49,9 +49,11 @@ Browser ←→ Hono server ←→ Claude (Vercel AI SDK) ←→ Your notes (loca
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key | (required) |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key | (one key required) |
+| `OPENAI_API_KEY` | Your OpenAI API key | (one key required) |
+| `PROVIDER` | `anthropic` or `openai` | inferred from the key set (Anthropic if both) |
 | `NOTES_DIR` | Absolute path to your notes directory | (required) |
-| `MODEL` | Claude model to use | `claude-opus-4-6` |
+| `MODEL` | Model to use | `claude-opus-4-6` / `gpt-5` |
 | `PORT` | Server port | `3001` |
 
 ## How It Works

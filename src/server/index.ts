@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { handleChat } from './chat.js';
+import { hasApiKey, resolveModelId, resolveProvider } from './provider.js';
 import {
   listSessions,
   getSession,
@@ -52,8 +53,9 @@ app.get('/api/health', (c) => {
   return c.json({
     ok: true,
     notesDir: process.env.NOTES_DIR || null,
-    hasApiKey: !!process.env.ANTHROPIC_API_KEY,
-    model: process.env.MODEL || 'claude-opus-4-6',
+    provider: resolveProvider(),
+    hasApiKey: hasApiKey(),
+    model: resolveModelId(),
   });
 });
 
